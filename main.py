@@ -14,9 +14,13 @@ from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
 import models
-from dataset import ContourDataset, transforms
+from dataset import ContourDataset, make_transform
 from config import Config
 from utils import create_model_path, normalize_transpose
+
+
+# models pkg下已有的模型
+model_choices = click.Choice(["ConvAutoEncoder", "ConvAutoEncoderV2"])
 
 
 @click.group()
@@ -54,11 +58,13 @@ def build_contour(data_path, result_dir):
 
 
 @cli.command()
-@click.option("--model-name", type=click.Choice(["ConvAutoEncoder"]), default="ConvAutoEncoder", help="模型名称")
+@click.option("--model-name", type=model_choices, default="ConvAutoEncoder", help="模型名称")
 @click.option("--load-model-path", type=click.File("rb"), help="加载该路径的下模型来进行后续的模型训练")
 @click.option("--img-dir", type=click.Path(exists=True, file_okay=False), default=Config.IMG_DIR, help="用于模型训练的图片所在目录")
+@click.option("--img-resize", type=click.INT, default=Config.IMG_RESIZE, help="图片大小调整参数")
 @click.option("--val-size", type=click.FLOAT, default=Config.VAL_SIZE, help="验证集比例，取值0 ~ 1.0")
 @click.option("--lr", type=click.FLOAT, default=Config.LR, help="学习率")
+@click.option("--weight-decay", type=click.FLOAT, default=1e-5, help="")
 @click.option("--epochs", type=click.INT, default=Config.EPOCHS)
 @click.option("--batch-size", type=click.INT, default=Config.BATCH_SIZE)
 @click.option("--model-dir", type=click.Path(file_okay=False), default=Config.MODEL_PATH, help="模型保存位置")
@@ -66,8 +72,10 @@ def train(
     model_name,
     load_model_path,
     img_dir,
+    img_resize,
     val_size,
     lr,
+    weight_decay,
     epochs,
     batch_size,
     model_dir
@@ -84,13 +92,13 @@ def train(
         model.load(load_model_path)
 
     # step2: prepare data
-    train_data = ContourDataset(img_dir, test_size=val_size)
-    val_data= ContourDataset(img_dir, test=True, test_size=val_size)
+    train_data = ContourDataset(img_dir, resize=img_resize, test_size=val_size)
+    val_data= ContourDataset(img_dir, resize=img_resize, test=True, test_size=val_size)
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size)
     
     # step3: optimizer and loss func
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_func = nn.MSELoss()
 
     # step4: train
@@ -108,6 +116,9 @@ def train(
             train_loss_epoch += loss.item() * data.size(0)
             train_num += data.size(0)
 
+        model_path = create_model_path(model_dir, model_name)
+        model.save(model_path)
+
         model.train(False)
         for step, (XX, img_name) in enumerate(val_loader):
             outputs = model(XX)
@@ -117,31 +128,32 @@ def train(
 
         train_loss = train_loss_epoch / train_num
         val_loss = val_loss_epoch / val_num
-        print("epoch:{} train-loss:{:7f}  val-loss:{:7f}".format(epoch, train_loss, val_loss))
-    
-        model_path = create_model_path(model_dir, model_name)
-        model.save(model_path)
+        print("epoch:{} train-loss:{:7f}  val-loss:{:7f}".format(epoch, train_loss, val_loss)) 
 
 
 @cli.command()
-@click.option("--model-name", type=click.Choice(["ConvAutoEncoder"]), default="ConvAutoEncoder", help="模型名称")
+@click.option("--model-name", type=model_choices, default="ConvAutoEncoder", help="模型名称")
 @click.option("--load-model-path", type=click.File("rb"), help="模型文件位置")
 @click.option("--img-path", type=click.File("rb"), help="图片位置")
+@click.option("--img-resize", type=click.INT, default=Config.IMG_RESIZE, help="图片大小调整参数")
 @click.option("--output-path", type=click.File("wb"), default="concat.jpg", help="输出图片文件路径")
 def infer(
     model_name,
     load_model_path,
     img_path,
+    img_resize,
     output_path
 ):
     # step1: load model
     model = getattr(models, model_name)()
     model.load(load_model_path)
+    model.train(False)
 
     # step2: read img
     img = Image.open(img_path)
 
-    img_tensor = transforms(img)
+    transform = make_transform(resize=img_resize)
+    img_tensor = transform(img)
     img_tensor = img_tensor.unsqueeze(0)
 
     # step3: infer
@@ -167,20 +179,60 @@ def infer(
 
 
 @cli.command()
-@click.option("--model-name", type=click.Choice(["ConvAutoEncoder"]), default="ConvAutoEncoder", help="模型名称")
+@click.option("--model-name", type=model_choices, default="ConvAutoEncoder", help="模型名称")
 @click.option("--load-model-path", type=click.File("rb"), help="模型文件位置")
-@click.option("--img-dir", type=click.Path(file_okay=False), help="图片目录")
-@click.option("--output", type=click.File("w"), help="聚类结果")
+@click.option("--img-dir", type=click.Path(exists=True, file_okay=False), default=Config.IMG_DIR, help="用于模型训练的图片所在目录")
+@click.option("--img-resize", type=click.INT, default=Config.IMG_RESIZE, help="图片大小调整参数")
+@click.option("--batch-size", type=click.INT, default=Config.BATCH_SIZE)
+@click.option("--output", type=click.File("w"), default="cluster_result.csv",  help="聚类结果")
 def cluster(
     model_name,
     load_model_path,
-    img_dir
+    img_dir,
+    img_resize,
+    batch_size,
+    output,
 ):
+    from itertools import groupby
+    from sklearn.cluster import DBSCAN
+    import numpy as np
+
     # step1: load model
     model = getattr(models, model_name)()
     model.load(load_model_path)
+    model.train(False)
+
+    # step2: load data
+    data = ContourDataset(img_dir, resize=img_resize)
+    data_loader = DataLoader(data, batch_size=batch_size)
+
+    # step3: encode
+    fnames = []
+    encodes = []
+    for i, (img_arr, img_name) in enumerate(data_loader):
+        encode = model(img_arr, output_encode=True)
+        b = encode.size(0)
+        encode = encode.view(b, -1).detach().numpy()
+        encodes.append(encode)
+        fnames.extend(img_name)
+        if i > 30:
+            break
+    encodes = np.vstack(encodes)
+    # step4: cluster
+    y_pred_ = DBSCAN(eps=0.1, min_samples=3).fit_predict(encodes)
+    y_pred = filter(lambda x: x[-1] > -1, enumerate(y_pred_))   ## 过滤异常点
+    y_pred = sorted(map(lambda x: (fnames[x[0]], x[1]), y_pred), key=lambda x:x[-1])
+
+    df_pred = pd.DataFrame(y_pred, columns=["fname", "group"])
+    df_pred.to_csv(output, index=False)
+
+
+    # groups = {}
+    # for k, gp in groupby(y_pred, key=lambda x:x[1]):
+    #     groups[k] = list(map(lambda x: x[0], gp))
+
+
     
-    pass
 
 if __name__ == "__main__":
     cli()

@@ -21,9 +21,10 @@ class Config:
     # 模型训练相关参数
     MODEL_NAME = "ConvAutoEncoder"
     IMG_DIR = path_join(DATA_DIR, "contour_result/img") 
+    IMG_RESIZE = 160    # 输入模型的图片的大小设置 IMG_RESIZE * IMG_RESIZE
     VAL_SIZE = 0.3
     EPOCHS = 10
-    BATCH_SIZE = 20
-    LR = 0.001
+    BATCH_SIZE = 30
+    LR = 0.0007
     MODEL_PATH = path_join(ROOT_DIR, "checkpoints")
 

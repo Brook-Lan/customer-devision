@@ -10,23 +10,27 @@ import torch.nn as nn
 from .basic_module import BasicModule
 
 
-class ConvAutoEncoder(BasicModule):
-    """ 自动编码器， 输入SIZE 可为 28 * 28 、60 * 60 、100 * 100 、 180 * 180
-    300 * 300, 900 * 900、 660 * 660, 780 * 780
+class ConvAutoEncoderV2(BasicModule):
+    """ 自动编码器， 输入SIZE 为 320 * 320
     """
     def __init__(self):
-        super(ConvAutoEncoder, self).__init__()
+        super(ConvAutoEncoderV2, self).__init__()
 
         # input : batch * 3 * 100 * 100
         self.encoder = nn.Sequential(
-                nn.Conv2d(3, 32, 3, stride=1, padding=1),     # batch * 32 * 100 * 100
+                nn.Conv2d(3, 32, 3, stride=1, padding=1),   # batch * 8 * 50 * 50
                 nn.ReLU(),
-                nn.MaxPool2d(2, stride=2),   # batch * 16 * 50 * 50
+                nn.MaxPool2d(2, stride=2),   # batch * 8 * 25 * 25
                 nn.BatchNorm2d(32),
 
                 nn.Conv2d(32, 16, 3, stride=1, padding=1),   # batch * 8 * 50 * 50
                 nn.ReLU(),
                 nn.MaxPool2d(2, stride=2),   # batch * 8 * 25 * 25
+                nn.BatchNorm2d(16),
+
+                nn.Conv2d(16, 16, 3, stride=1, padding=1),    # batch * 8 * 25 * 25
+                nn.ReLU(),
+                nn.MaxPool2d(2, stride=2),   # batch * 8 * 12 * 12
                 nn.BatchNorm2d(16),
 
                 nn.Conv2d(16, 8, 3, stride=1, padding=1),    # batch * 8 * 25 * 25
@@ -40,11 +44,15 @@ class ConvAutoEncoder(BasicModule):
                 nn.ReLU(),
                 nn.BatchNorm2d(16),
 
-                nn.ConvTranspose2d(16, 32, kernel_size=3, stride=2),  # batch * 32 * 49 * 49  公式为:output = (input -1) * stride + outputpadding  - 2 * padding + kernelsize
+                nn.ConvTranspose2d(16, 16, kernel_size=3, stride=2),  # batch * 16 * 24 * 24  公式为:output = (input -1) * stride + outputpadding  - 2 * padding + kernelsize
+                nn.ReLU(),
+                nn.BatchNorm2d(16),
+
+                nn.ConvTranspose2d(16, 32, kernel_size=4, stride=2),  # batch * 16 * 24 * 24  公式为:output = (input -1) * stride + outputpadding  - 2 * padding + kernelsize
                 nn.ReLU(),
                 nn.BatchNorm2d(32),
 
-                nn.ConvTranspose2d(32, 3, kernel_size=4, stride=2),   # batch * 3 * 100 * 100
+                nn.ConvTranspose2d(32, 3, kernel_size=5, stride=2),   # batch * 3 * 100 * 100
                 )
     
     def forward(self, x, output_encode=False):
@@ -57,7 +65,9 @@ class ConvAutoEncoder(BasicModule):
 
 if __name__ == "__main__":
     from torchsummary import summary
-    model = ConvAutoEncoder()
-    summary(model, (3, 64, 64))
+    model = ConvAutoEncoderV2()
+    # summary(model, (3, 400, 400))
+    # summary(model, (3, 256, 256))
+    summary(model, (3, 187, 187))
 
 

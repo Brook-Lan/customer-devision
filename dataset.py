@@ -14,16 +14,24 @@ from torch.utils.data import Dataset
 from torchvision import transforms as T
 
 
-normalize = T.Normalize(mean=[0.485, 0.456,0.406], std=[0.229,0.224,0.225])   # 需要自行抽样抽样计算mean和std
-transforms = T.Compose([
-                        T.Resize((300,300)),
-                        T.ToTensor(),
-                        normalize
-                        ])
+def make_transform(resize=128, normal_mean=[0.485, 0.456,0.406], normal_std=[0.229,0.224,0.225]):
+    transform = T.Compose([
+                    T.Resize((resize, resize)),
+                    T.ToTensor(),
+                    T.Normalize(mean=normal_mean, std=normal_std)
+                ])
+    return transform
 
 
 class ContourDataset(Dataset):
-    def __init__(self, root, test=False, test_size=0.3):
+    def __init__(self,
+            root,
+            resize=128,
+            normal_mean=[0.485, 0.456,0.406],
+            normal_std=[0.229,0.224,0.225],
+            test=False,
+            test_size=0.3
+        ):
         random.seed(8)
         imgs = [os.path.join(root, img) for img in os.listdir(root)]
         random.shuffle(imgs)
@@ -32,14 +40,15 @@ class ContourDataset(Dataset):
             self.imgs = imgs[-test_count:]
         else:
             self.imgs = imgs[:test_count]
-        self.transforms = transforms
+
+        self.transform = make_transform(resize, normal_mean, normal_std)
 
     def __getitem__(self, index):
         img_path = self.imgs[index]
         filename = os.path.split(img_path)[-1]
         img_name = os.path.splitext(filename)[0]
         data = Image.open(img_path)
-        data = self.transforms(data)
+        data = self.transform(data)
         return data, img_name
 
     def __len__(self):

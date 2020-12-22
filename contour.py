@@ -196,7 +196,7 @@ def build_contour_img(data_path, result_dir, layout_scale=0.3, expand=100):
                 H[i,j] = max(H[i,j], h)
         
         # 绘制等高线热图
-        fig = plt.figure(figsize=(8, 8), dpi=100)
+        fig = plt.figure(figsize=(4, 4), dpi=50)
         ax = plt.Axes(fig, [0, 0, 1, 1])    # 画布边缘不留空白
         ax.set_axis_off()    # 关闭坐标轴
         fig.add_axes(ax)
