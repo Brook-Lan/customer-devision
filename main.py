@@ -8,6 +8,7 @@
 import os
 
 import click
+import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 from torch.utils.data import DataLoader
@@ -150,7 +151,7 @@ def infer(
     model.train(False)
 
     # step2: read img
-    img = Image.open(img_path)
+    img = Image.open(img_path).convert("RGB")
 
     transform = make_transform(resize=img_resize)
     img_tensor = transform(img)
@@ -160,10 +161,10 @@ def infer(
     output = model(img_tensor)
 
     # step4: conver to img
-    output = normalize_transpose(output[0], mean=[0.485, 0.456,0.406], std=[0.229,0.224,0.225])
+    output = normalize_transpose(output[0], mean=Config.IMG_MEAN, std=Config.IMG_STD)
     img_new = T.ToPILImage()(output)
 
-    img_old = normalize_transpose(img_tensor[0], mean=[0.485, 0.456,0.406], std=[0.229,0.224,0.225])
+    img_old = normalize_transpose(img_tensor[0], mean=Config.IMG_MEAN, std=Config.IMG_STD)
     img_old = T.ToPILImage()(img_old)
     
     width, height = img_old.size
@@ -195,7 +196,6 @@ def cluster(
 ):
     from itertools import groupby
     from sklearn.cluster import DBSCAN
-    import numpy as np
 
     # step1: load model
     model = getattr(models, model_name)()
@@ -231,6 +231,34 @@ def cluster(
     # for k, gp in groupby(y_pred, key=lambda x:x[1]):
     #     groups[k] = list(map(lambda x: x[0], gp))
 
+
+@cli.command()
+@click.option("--img-dir", type=click.Path(exists=True, file_okay=False), default=Config.IMG_DIR, help="用于模型训练的图片所在目录")
+@click.option("--sample", type=click.FLOAT, default="0.01", help="采样数量")
+def img_mean_std(
+    img_dir,
+    sample
+):
+    import numpy as np
+    from torchvision import transforms as T
+
+    to_tensor = T.ToTensor()
+
+
+    data = ContourDataset(img_dir, test_size=sample, test=True)
+
+    imgs = []
+    for img_path in data.imgs:
+        img = to_tensor(Image.open(img_path).convert('RGB')).numpy()
+        imgs.append(img)
+
+    print("sample counts", len(imgs))
+
+    imgs = np.hstack(imgs)
+
+    for i in range(imgs.shape[0]):
+        sub_img = imgs[i,:,:]
+        print("mean:%.2f  std: %.2f" %(sub_img.mean(), imgs.std()))
 
     
 

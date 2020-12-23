@@ -66,21 +66,25 @@ def locate_feat(df_corr, scale=0.6):
 def prepare_binning_args(df, bin_num=10):
     """准备数据分箱参数
     """
+    # 大于0的部分分bin_num - 1 个箱
     data = []
     for feat in df.columns:
         tmp_s = df.query("%s > 0" % feat)[feat]    # 取大于0的比例值(0的数据比较多)
         data.append(tmp_s)
-    _, bin_boundary = pd.qcut(pd.concat(data), q=bin_num, retbins=True)
+    _, bin_boundary = pd.qcut(pd.concat(data), q=bin_num-1, retbins=True)
 
-    bin_boundary[0] = -1  # 起始补零
+    # 补充0值的分箱
+    bin_boundary = [0] + list(bin_boundary)  # 起始补0
     values = [] 
     pre_v = None
     for i, v in enumerate(bin_boundary):
-        if i == 0:
-            pre_v = v
-            continue
-        median_v = (pre_v + v) / 2.0   # 取中间值作为该分箱对应的值
-        values.append(median_v)
+        if i > 1:
+            median_v = (pre_v + v) / 2.0   # 取中间值作为该分箱对应的值
+            values.append(median_v)
+        elif i == 1:
+            values.append(0)
+        else:  # 等于0 则不操作
+            pass
         pre_v = v
 
     label2value = {i:v for i, v in enumerate(values)}
@@ -93,7 +97,7 @@ def bining(df, bin_boundary, labels=False):
     """
     tmp = []
     for feat in df.columns:
-        tmp.append(pd.cut(df[feat], bins=bin_boundary, labels=labels))
+        tmp.append(pd.cut(df[feat], bins=bin_boundary, labels=labels, include_lowest=True))
     df_bins = pd.concat(tmp, axis=1)
     return df_bins
 
@@ -177,6 +181,7 @@ def build_contour_img(data_path, result_dir, layout_scale=0.3, expand=100):
     unique_codes = sorted(list(set(codes)))
 
     # 等高线图
+    levels = np.linspace(min(bin_boundary), max(bin_boundary), 11) * TIMES
     half_axis_len = int(SCALE * 1.5 * TIMES)
     axis_len = half_axis_len * 2
     H = np.zeros((axis_len, axis_len))
@@ -196,11 +201,15 @@ def build_contour_img(data_path, result_dir, layout_scale=0.3, expand=100):
                 H[i,j] = max(H[i,j], h)
         
         # 绘制等高线热图
-        fig = plt.figure(figsize=(4, 4), dpi=50)
+        fig = plt.figure(figsize=(2, 2), dpi=100)
         ax = plt.Axes(fig, [0, 0, 1, 1])    # 画布边缘不留空白
         ax.set_axis_off()    # 关闭坐标轴
         fig.add_axes(ax)
-        ax.contourf(H, levels=10, alpha=0.9, cmap=plt.cm.hot)
+        # ax.contourf(H, levels=9, alpha=0.9, cmap=plt.cm.hot)
+        # ax.contourf(H, levels=levels, alpha=0.9, cmap=plt.cm.gist_ncar)
+        # ax.contourf(H, levels=levels, alpha=0.9, cmap=plt.cm.coolwarm)
+        # ax.contourf(H, levels=levels, alpha=0.9, cmap=plt.cm.bwr)
+        ax.contourf(H, levels=levels, alpha=0.9, cmap=plt.cm.OrRd)
         img_path = os.path.join(img_dir, "%s.jpg" % code_str)
         fig.savefig(img_path, transparent=True)
         plt.close()
